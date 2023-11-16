@@ -445,6 +445,11 @@ namespace RcclUnitTesting
     // Start group call
     CHILD_NCCL_CALL(ncclGroupStart(), "ncclGroupStart");
 
+	std::vector<std::vector<hipEvent_t>> startD(this->streams.size(),
+                                                std::vector<hipEvent_t>(this->streams[0].size()));
+	std::vector<std::vector<hipEvent_t>> endD(this->streams.size(),
+                                                std::vector<hipEvent_t>(this->streams[0].size()));
+	
     // Loop over all collectives to be executed in group call
     for (int collId = 0; collId < this->numCollectivesInGroup; ++collId)
     {
@@ -473,6 +478,12 @@ namespace RcclUnitTesting
                  collArg.outputCpu.ToString(collArg.dataType, numOutputElementsToPrint).c_str());
         }
 
+		hipEvent_t startG, endG;
+		CHECK_HIP(hipEventCreate(&startG));
+        CHECK_HIP(hipEventCreate(&endG));
+		CHECK_HIP(hipEventRecord(startG,this->streams[localRank][collArg.streamIdx]));
+		startD[localRank][collArg.streamIdx] = startG;
+		endD[localRank][collArg.streamIdx] = endG;
         switch (collArg.funcType)
         {
         case ncclCollBroadcast:
@@ -664,7 +675,17 @@ namespace RcclUnitTesting
       if (this->verbose) INFO("Starting synchronization for rank %d\n", localRank);
       CHECK_HIP(hipSetDevice(this->deviceIds[localRank]));
       for (int i = 0; i < this->numStreamsPerGroup; i++)
+      {
+        CHECK_HIP(hipEventRecord(endD[localRank][i], this->streams[localRank][i]));
         CHECK_HIP(hipStreamSynchronize(this->streams[localRank][i]));
+	
+		float gpuTimeMs = 0;
+		CHECK_HIP(hipEventElapsedTime(&gpuTimeMs, startD[localRank][i], endD[localRank][i]));
+		CHECK_HIP(hipEventDestroy(endD[localRank][i]));
+        CHECK_HIP(hipEventDestroy(startD[localRank][i]));
+		if (gpuTimeMs > 100)
+          return TEST_FAIL;
+	  }
     }
 
     // Destroy graphs
