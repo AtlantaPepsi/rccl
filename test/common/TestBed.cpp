@@ -276,7 +276,7 @@ namespace RcclUnitTesting
     InteractiveWait("Finishing PrepareData");
   }
 
-  void TestBed::ExecuteCollectives(std::vector<int> const &currentRanks, bool const useHipGraph)
+  void TestBed::ExecuteCollectives(std::vector<int> const &currentRanks, bool const useHipGraph, int const timeout)
   {
     InteractiveWait("Starting ExecuteCollectives");
 
@@ -296,6 +296,7 @@ namespace RcclUnitTesting
       {
         InteractiveWait("Starting ExecuteCollectives for child " + std::to_string(childId));
         PIPE_WRITE(childId, cmd);
+        PIPE_WRITE(childId, timeout);
         PIPE_WRITE(childId, useHipGraph);
         int tempCurrentRanks = currentRanks.size();
         PIPE_WRITE(childId, tempCurrentRanks);
@@ -617,7 +618,7 @@ namespace RcclUnitTesting
             }
 
             std::vector<int> currentRanksEmpty = {};
-            this->ExecuteCollectives(currentRanksEmpty, useHipGraphList[hgIdx]);
+            this->ExecuteCollectives(currentRanksEmpty, useHipGraphList[hgIdx], ev.timeout);
             if (testing::Test::HasFailure())
             {
               isCorrect = false;
