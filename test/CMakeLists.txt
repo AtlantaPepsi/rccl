@@ -51,7 +51,7 @@ if(BUILD_TESTS)
       GatherTests.cpp
       GroupCallTests.cpp
       NonBlockingTests.cpp
-      ProtocalTests.cpp
+      ProtocolTests.cpp
       ReduceScatterTests.cpp
       ReduceTests.cpp
       ScatterTests.cpp

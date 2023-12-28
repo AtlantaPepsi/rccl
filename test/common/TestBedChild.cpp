@@ -6,8 +6,6 @@
 
 #include "TestBedChild.hpp"
 
-#include <atomic>
-#include <condition_variable>
 #include <thread>
 #include <execinfo.h>
 
@@ -45,10 +43,6 @@
 
 namespace RcclUnitTesting
 {
-  static void wait(int const timeout, std::atomic<bool> &timesUp);
-  std::condition_variable cv;                         // Conditional variable for waking up timer thread
-  std::mutex timerMutex;                              // Mutex for same purpose
-
   TestBedChild::TestBedChild(int const childId, bool const verbose, int const printValues)
   {
     this->childId = childId;
@@ -399,8 +393,8 @@ namespace RcclUnitTesting
 
   ErrCode TestBedChild::ExecuteCollectives()
   {
-    int timeout = 0;
-    PIPE_READ(timeout);
+    int timeoutMs = 0;
+    PIPE_READ(timeoutMs);
 
     bool useHipGraph = false;
     PIPE_READ(useHipGraph);
@@ -668,48 +662,47 @@ namespace RcclUnitTesting
     }
 
     // Synchronize
-    if (timeout)
+    std::vector<std::pair<hipStream_t,int>> streamsToComplete;
+    for (int localRank : localRanksToExecute)
     {
-      std::atomic<bool> timesUp{false};
-      int totalStreams = localRanksToExecute.size() * this->numStreamsPerGroup;
-      bool streamsComplete;
-      if (this->verbose) INFO("Starting sychronization and timing\n");
-      std::thread timer(wait, timeout, std::ref(timesUp));
-      timer.detach();
-      do
-      {
-        streamsComplete = true;
-        for (int localRank : localRanksToExecute)
-        {
-          CHECK_HIP(hipSetDevice(this->deviceIds[localRank]));
-          for (int i = 0; i < this->numStreamsPerGroup; i++)
-          {
-            if (hipStreamQuery(this->streams[localRank][i]) != hipSuccess)
-              streamsComplete = false;
-          }
-        }
-      } while(!timesUp && !streamsComplete);
-
-      if (!streamsComplete)  // timed out
-      {
-        for (int localRank : localRanksToExecute)
-        {
-          ncclCommAbort(this->comms[localRank]);
-          timeout = -1;
-        }
-      }
-      else
-        cv.notify_all();  // wake up and free thread, discard timesUp(===true)
+      for (int i = 0; i < this->numStreamsPerGroup; i++)
+        streamsToComplete.emplace_back(this->streams[localRank][i], localRank);
     }
-    else
+    int msElapsed = 0;
+    using namespace std::chrono;
+    using Clock = std::chrono::high_resolution_clock;
+    if (this->verbose) INFO("Starting sychronization and timing\n");
+    const auto start = Clock::now();
+    while (!streamsToComplete.empty() && msElapsed < timeoutMs)
     {
+      for (int i = 0; i < streamsToComplete.size(); i++)
+      {
+        CHECK_HIP(hipSetDevice(streamsToComplete[i].second));  //worth optimize?
+        if (hipStreamQuery(streamsToComplete[i].first) == hipSuccess)
+        {
+          streamsToComplete.erase(streamsToComplete.begin() + i);
+          i--;
+        }  
+      }
+      msElapsed = duration_cast<milliseconds>(Clock::now() - start).count();
+    }
+
+    if (!streamsToComplete.empty())  // timed out
+    {
+      if (this->verbose) INFO("Collective timed out, aborting\n");
       for (int localRank : localRanksToExecute)
       {
-        if (this->verbose) INFO("Starting synchronization for rank %d\n", localRank);
-        CHECK_HIP(hipSetDevice(this->deviceIds[localRank]));
-        for (int i = 0; i < this->numStreamsPerGroup; i++)
-          CHECK_HIP(hipStreamSynchronize(this->streams[localRank][i]));
+        ncclCommAbort(this->comms[localRank]); //can u triple check this correctly?
+        timeoutMs = -1;
       }
+    }
+
+    for (int localRank : localRanksToExecute) // i have to do this for passed cases for correctness
+    {
+      if (this->verbose) INFO("Starting synchronization for rank %d\n", localRank);
+      CHECK_HIP(hipSetDevice(this->deviceIds[localRank]));
+      for (int i = 0; i < this->numStreamsPerGroup; i++)
+        CHECK_HIP(hipStreamSynchronize(this->streams[localRank][i]));
     }
 
     // Destroy graphs
@@ -726,9 +719,6 @@ namespace RcclUnitTesting
         }
       }
     }
-
-    if (timeout == -1)
-      return TEST_TIMEOUT;
 
     if (this->printValues)
     {
@@ -747,6 +737,10 @@ namespace RcclUnitTesting
                  collArg.expected.ToString(collArg.dataType, numOutputElementsToPrint).c_str());
         }
     }
+
+    if (timeoutMs == -1)
+      return TEST_TIMEOUT;
+
     if (this->verbose) INFO("Child %d finishes ExecuteCollectives()\n", this->childId);
     return TEST_SUCCESS;
   }
@@ -865,14 +859,5 @@ namespace RcclUnitTesting
     this->streams.clear();
     if (this->verbose) INFO("Child %d finishes DestroyComms\n", this->childId);
     return TEST_SUCCESS;
-  }
-
-  static void wait(int const timeout, std::atomic<bool> &timesUp)
-  {
-    using namespace std::chrono_literals; // just for cv lock and waking up threads
-    std::unique_lock<std::mutex> lk(timerMutex);
-    cv.wait_for(lk, timeout * 1us);
-    if (!timesUp)
-      timesUp.exchange(true); //might be race condition but don't really matter here
   }
 }
