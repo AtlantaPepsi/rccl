@@ -338,22 +338,22 @@ __device__ __forceinline__ void mscclRunInterpreter(
             if (tid == 0) {
               NpKit::CollectGpuEventLDS(NPKIT_EVENT_MSCCL_SEND_ENTRY, thisNelem*sizeof(T), 0, NPKIT_GET_GPU_TIMESTAMP());
             }
-#endif	
-          prims.send(srcOffset, thisNelem); // LL.send is the only situation where there is no barrier at the end.
+#endif
+          prims.template send<1>(srcOffset, thisNelem); // LL.send is the only situation where there is no barrier at the end.
 
 #if defined(ENABLE_NPKIT) && defined(ENABLE_NPKIT_EVENT_MSCCL_SEND_EXIT)
             if (tid == 0) {
               NpKit::CollectGpuEventLDS(NPKIT_EVENT_MSCCL_SEND_EXIT, thisNelem*sizeof(T), 0, NPKIT_GET_GPU_TIMESTAMP());
             }
-#endif						       
+#endif
         }
         else if (t->type == MSCCL_RECV) {
 #if defined(ENABLE_NPKIT) && defined(ENABLE_NPKIT_EVENT_MSCCL_RECV_ENTRY)
             if (tid == 0) {
               NpKit::CollectGpuEventLDS(NPKIT_EVENT_MSCCL_RECV_ENTRY, thisNelem*sizeof(T), 0, NPKIT_GET_GPU_TIMESTAMP());
             }
-#endif	
-          prims.recv(dstOffset, thisNelem);
+#endif
+          prims.template recv<1>(dstOffset, thisNelem);
 #if defined(ENABLE_NPKIT) && defined(ENABLE_NPKIT_EVENT_MSCCL_RECV_EXIT)
             if (tid == 0) {
               NpKit::CollectGpuEventLDS(NPKIT_EVENT_MSCCL_RECV_EXIT, thisNelem*sizeof(T), 0, NPKIT_GET_GPU_TIMESTAMP());
@@ -460,7 +460,7 @@ __device__ __forceinline__ void mscclRunInterpreter(
           return;
       }
       if (t->hasDependence && tid == nthreads-1)
-        __atomic_store_n(&mscclFlags[bid].flag, (uint64_t) COMPUTE_FLAG(workIndex, iter, step), __ATOMIC_RELAXED);
+        __atomic_store_n(&mscclFlags[bid].flag, (uint64_t) COMPUTE_FLAG(workIndex, iter, step), t->type == MSCCL_REDUCE ? __ATOMIC_RELEASE : __ATOMIC_RELAXED);
       step++;
     }
   }
@@ -492,7 +492,7 @@ __global__ void MSCCL_KERNEL_ENTRY_NAME(devredop, type, Simple, fullOps)(struct 
   mscclRunInterpreter<type, Func##devredop<type>, ProtoSimple<MSCCL_CHUNKSTEPS/MSCCL_SLICESTEPS, MSCCL_SLICESTEPS>, fullOps>(comm, algo, work); \
 }
 
-#define MSCCL_IMPL_KERNEL_ENTRY_FUNC_DEVREDOP(devredop) \
+#define MSCCL_IMPL_KERNEL_ENTRY_FUNC_DEVREDOP(devredop, fullOps) \
   MSCCL_IMPL_KERNEL_ENTRY_FUNC_DEVREDOP_TYPE(devredop, int8_t, fullOps) \
   MSCCL_IMPL_KERNEL_ENTRY_FUNC_DEVREDOP_TYPE(devredop, uint8_t, fullOps) \
   MSCCL_IMPL_KERNEL_ENTRY_FUNC_DEVREDOP_TYPE(devredop, int32_t, fullOps) \
@@ -504,7 +504,7 @@ __global__ void MSCCL_KERNEL_ENTRY_NAME(devredop, type, Simple, fullOps)(struct 
   MSCCL_IMPL_KERNEL_ENTRY_FUNC_DEVREDOP_TYPE(devredop, double, fullOps) \
   MSCCL_IMPL_KERNEL_ENTRY_FUNC_DEVREDOP_TYPE(devredop, rccl_bfloat16, fullOps)
 
-#define MSCCL_IMPL_KERNEL_ENTRY_FUNC_DEVREDOP_NOFLOAT(devredop) \
+#define MSCCL_IMPL_KERNEL_ENTRY_FUNC_DEVREDOP_NOFLOAT(devredop, fullOps) \
   MSCCL_IMPL_KERNEL_ENTRY_FUNC_DEVREDOP_TYPE(devredop, int8_t, fullOps) \
   MSCCL_IMPL_KERNEL_ENTRY_FUNC_DEVREDOP_TYPE(devredop, uint8_t, fullOps) \
   MSCCL_IMPL_KERNEL_ENTRY_FUNC_DEVREDOP_TYPE(devredop, int32_t, fullOps) \
@@ -517,11 +517,7 @@ __global__ void MSCCL_KERNEL_ENTRY_NAME(devredop, type, Simple, fullOps)(struct 
   MSCCL_IMPL_KERNEL_ENTRY_FUNC_DEVREDOP(Prod, false) \
   MSCCL_IMPL_KERNEL_ENTRY_FUNC_DEVREDOP(Max, false) \
   MSCCL_IMPL_KERNEL_ENTRY_FUNC_DEVREDOP(Min, false) \
-  MSCCL_IMPL_KERNEL_ENTRY_FUNC_DEVREDOP(Sum, true) \
-  MSCCL_IMPL_KERNEL_ENTRY_FUNC_DEVREDOP(Prod, true) \
-  MSCCL_IMPL_KERNEL_ENTRY_FUNC_DEVREDOP(Max, true) \
-  MSCCL_IMPL_KERNEL_ENTRY_FUNC_DEVREDOP(Min, true) \
-  MSCCL_IMPL_KERNEL_ENTRY_FUNC_DEVREDOP(PreMulSum, true) \
-  MSCCL_IMPL_KERNEL_ENTRY_FUNC_DEVREDOP_NOFLOAT(SumPostDiv, true)
+  MSCCL_IMPL_KERNEL_ENTRY_FUNC_DEVREDOP(PreMulSum, false) \
+  MSCCL_IMPL_KERNEL_ENTRY_FUNC_DEVREDOP_NOFLOAT(SumPostDiv, false)
 
 #endif

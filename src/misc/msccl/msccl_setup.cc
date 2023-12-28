@@ -185,7 +185,7 @@ static void HIPRT_CB mscclSetupProxyCallback(void *args) {
   INFO(NCCL_NET,"mscclSetupProxyCallback: proxy args size: %ld\n", params->size());
   for (auto &p : *params) {
     mscclSetupProxyImpl(p.hostAlgo, p.comm);
-  }    
+  }
 }
 
 ncclResult_t mscclSetupProxy(struct mscclAlgo* hostAlgo, ncclComm_t comm, hipStream_t stream) {
@@ -319,15 +319,11 @@ static ncclResult_t hostToDevRedOp(
   MSCCL_KERNEL_ENTRY_DEVREDOP(Prod, false), \
   MSCCL_KERNEL_ENTRY_DEVREDOP(Max, false), \
   MSCCL_KERNEL_ENTRY_DEVREDOP(Min, false), \
-  MSCCL_KERNEL_ENTRY_DEVREDOP(Sum, true), \
-  MSCCL_KERNEL_ENTRY_DEVREDOP(Prod, true), \
-  MSCCL_KERNEL_ENTRY_DEVREDOP(Max, true), \
-  MSCCL_KERNEL_ENTRY_DEVREDOP(Min, true), \
-  MSCCL_KERNEL_ENTRY_DEVREDOP(PreMulSum, true), \
-  MSCCL_KERNEL_ENTRY_DEVREDOP_NOFLOAT(SumPostDiv, true)
+  MSCCL_KERNEL_ENTRY_DEVREDOP(PreMulSum, false), \
+  MSCCL_KERNEL_ENTRY_DEVREDOP_NOFLOAT(SumPostDiv, false)
 
 // Except for ncclDevPreMulSum and ncclDevSumPostDiv required by ncclAvg
-void* mscclKernelEntries[ncclNumDevRedOps * ncclNumTypes * NCCL_NUM_PROTOCOLS * 2] = {
+void* mscclKernelEntries[ncclNumDevRedOps * ncclNumTypes * NCCL_NUM_PROTOCOLS] = {
 #ifdef COMPILE_MSCCL_KERNEL
   MSCCL_KERNEL_ENTRY()
 #endif
@@ -415,18 +411,38 @@ ncclResult_t mscclSetupKernel(const void* sendBuff, void* recvBuff, size_t count
                         (1<<MSCCL_RECV_REDUCE_COPY) |
                         (1<<MSCCL_LOCAL_COPY);
   //check if need full ops msccl kernel
-  if ((hostAlgo->typeMask & fullOpMask) || rcclParamMscclForceFullOps())
-    fnIndex += sizeof(mscclKernelEntries)/sizeof(void *)/2;
+  if ((hostAlgo->typeMask & fullOpMask) || rcclParamMscclForceFullOps()) {
+    WARN("MSCCL: this version of MSCCL build doesn't support fill Ops");
+    return ncclInternalError;
+  }
 
   mscclWork work;
   work.syncFlags = status.syncFlags;
   size_t sizeNeeded = computeSizeNeeded(status.nBytes, hostAlgo->nScratchChunks, hostAlgo->nChunksPerLoop);
-  if (status.scratchBuffers.find(sizeNeeded) == status.scratchBuffers.end()) {
-    void *scratchBuffer = nullptr;
-    NCCLCHECK(ncclCudaMalloc((char**)&scratchBuffer, sizeNeeded, true));
-    status.scratchBuffers[sizeNeeded] = scratchBuffer;
+  if (sizeNeeded > 0) {
+    auto itr = status.scratchBuffers.lower_bound(sizeNeeded);
+    if (itr == status.scratchBuffers.end()) {
+      void *scratchBuffer = nullptr;
+      size_t sizeRounded = 1;
+      if (status.scratchBuffers.size() > 0) {
+        sizeRounded = status.scratchBuffers.rbegin()->first;
+      }
+      while (sizeRounded < sizeNeeded) {
+        if (sizeRounded >= sizeRounded * 2) {
+          WARN("MSCCL: Size of allocation for scratch buffer (%lu * 2) will wrap around", sizeRounded);
+          return ncclInvalidUsage;
+        }
+        sizeRounded *= 2;
+      }
+      NCCLCHECK(ncclCudaMalloc((char**)&scratchBuffer, sizeRounded, true));
+      work.scratchBuffer = status.scratchBuffers[sizeRounded] = scratchBuffer;
+      INFO(NCCL_INIT, "MSCCL: Allocated scratch buffer of size %lu on request (%lu)", sizeRounded, sizeNeeded);
+    } else {
+      work.scratchBuffer = itr->second;
+    }
+  } else {
+    work.scratchBuffer = nullptr;
   }
-  work.scratchBuffer = status.scratchBuffers[sizeNeeded];
   work.sendBuff = sendBuff;
   work.recvBuff = recvBuff;
   work.sizePerMscclChunk = count * hostAlgo->sizeMultiplier / hostAlgo->nChunksPerLoop; // count is sum of all ranks in MSCCL kernel
