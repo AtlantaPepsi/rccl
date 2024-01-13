@@ -435,7 +435,6 @@ namespace RcclUnitTesting
     {
       for (int localRank : localRanksToExecute)
       {
-        CHECK_HIP(hipSetDevice(this->deviceIds[localRank]));
         if (this->verbose) INFO("Capturing stream for rank %d\n", localRank);
         CHECK_HIP(hipSetDevice(this->deviceIds[localRank]));
         for (int i = 0; i < this->numStreamsPerGroup; i++)
@@ -662,11 +661,11 @@ namespace RcclUnitTesting
     }
 
     // Synchronize
-    std::vector<std::pair<hipStream_t,int>> streamsToComplete;
+    std::vector<hipStream_t> streamsToComplete;
     for (int localRank : localRanksToExecute)
     {
       for (int i = 0; i < this->numStreamsPerGroup; i++)
-        streamsToComplete.emplace_back(this->streams[localRank][i], localRank);
+        streamsToComplete.push_back(this->streams[localRank][i]);
     }
     int msElapsed = 0;
     using namespace std::chrono;
@@ -677,8 +676,7 @@ namespace RcclUnitTesting
     {
       for (int i = 0; i < streamsToComplete.size(); i++)
       {
-        CHECK_HIP(hipSetDevice(streamsToComplete[i].second));  //worth optimize?
-        if (hipStreamQuery(streamsToComplete[i].first) == hipSuccess)
+        if (hipStreamQuery(streamsToComplete[i]) == hipSuccess)
         {
           streamsToComplete.erase(streamsToComplete.begin() + i);
           i--;
@@ -687,20 +685,23 @@ namespace RcclUnitTesting
       msElapsed = duration_cast<milliseconds>(Clock::now() - start).count();
     }
 
-    if (!streamsToComplete.empty())  // timed out
+    // timed out
+    if (!streamsToComplete.empty())
     {
       if (this->verbose) INFO("Collective timed out, aborting\n");
       for (int localRank : localRanksToExecute)
       {
-        ncclCommAbort(this->comms[localRank]); //can u triple check this correctly?
+        ncclCommAbort(this->comms[localRank]); 
         timeoutMs = -1;
       }
     }
 
-    for (int localRank : localRanksToExecute) // i have to do this for passed cases for correctness
+    // extra sync to flush GPU cache for validation later
+    // TODO: remove this after figuring out & fixing the exact behavior 
+    // of fencing between kernels and at hipStreamQuery
+    for (int localRank : localRanksToExecute)
     {
       if (this->verbose) INFO("Starting synchronization for rank %d\n", localRank);
-      CHECK_HIP(hipSetDevice(this->deviceIds[localRank]));
       for (int i = 0; i < this->numStreamsPerGroup; i++)
         CHECK_HIP(hipStreamSynchronize(this->streams[localRank][i]));
     }
