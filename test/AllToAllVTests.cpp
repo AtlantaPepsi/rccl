@@ -61,7 +61,7 @@ namespace RcclUnitTesting
     TestBed testBed;
 
     // Configuration
-    std::vector<ncclDataType_t> const& dataTypes       = {ncclInt32, ncclFloat64, ncclFloat16};
+    std::vector<ncclDataType_t> const& dataTypes       = {ncclInt32, ncclFloat16, ncclFloat64};
     bool                        const  inPlace         = false;
     bool                        const  useManagedMem   = false;
     bool                        const  useHipGraph     = false;
@@ -117,7 +117,7 @@ namespace RcclUnitTesting
     TestBed testBed;
 
     // Configuration
-    std::vector<ncclDataType_t> const& dataTypes       = {ncclFloat32, ncclInt8};
+    std::vector<ncclDataType_t> const& dataTypes       = {ncclInt8, ncclFloat16, ncclFloat32};
     bool                        const  inPlace         = false;
     bool                        const  useManagedMem   = false;
     bool                        const  useHipGraph     = false;

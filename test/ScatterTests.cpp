@@ -13,7 +13,7 @@ namespace RcclUnitTesting
 
     // Configuration
     std::vector<ncclFunc_t>     const funcTypes       = {ncclCollScatter};
-    std::vector<ncclDataType_t> const dataTypes       = {ncclFloat32};
+    std::vector<ncclDataType_t> const dataTypes       = {ncclFloat16, ncclFloat32};
     std::vector<ncclRedOp_t>    const redOps          = {ncclSum};
     std::vector<int>            const roots           = {1};
     std::vector<int>            const numElements     = {393216, 384};
@@ -32,7 +32,7 @@ namespace RcclUnitTesting
 
     // Configuration
     std::vector<ncclFunc_t>     const funcTypes       = {ncclCollScatter};
-    std::vector<ncclDataType_t> const dataTypes       = {ncclFloat64, ncclBfloat16};
+    std::vector<ncclDataType_t> const dataTypes       = {ncclBfloat16, ncclFloat16, ncclFloat64};
     std::vector<ncclRedOp_t>    const redOps          = {ncclSum};
     std::vector<int>            const roots           = {1};
     std::vector<int>            const numElements     = {24658};
@@ -51,7 +51,7 @@ namespace RcclUnitTesting
 
     // Configuration
     std::vector<ncclFunc_t>     const funcTypes       = {ncclCollScatter};
-    std::vector<ncclDataType_t> const dataTypes       = {ncclInt32};
+    std::vector<ncclDataType_t> const dataTypes       = {ncclInt32, ncclFloat16};
     std::vector<ncclRedOp_t>    const redOps          = {ncclSum};
     std::vector<int>            const roots           = {0};
     std::vector<int>            const numElements     = {1048576, 1024};
@@ -89,7 +89,7 @@ namespace RcclUnitTesting
 
     // Configuration
     std::vector<ncclFunc_t>     const funcTypes       = {ncclCollScatter};
-    std::vector<ncclDataType_t> const dataTypes       = {ncclInt64, ncclUint8};
+    std::vector<ncclDataType_t> const dataTypes       = {ncclInt64, ncclUint8, ncclFloat16};
     std::vector<ncclRedOp_t>    const redOps          = {ncclSum};
     std::vector<int>            const roots           = {0};
     std::vector<int>            const numElements     = {948576};
@@ -108,7 +108,7 @@ namespace RcclUnitTesting
 
     // Configuration
     std::vector<ncclFunc_t>     const funcTypes       = {ncclCollScatter};
-    std::vector<ncclDataType_t> const dataTypes       = {ncclUint32, ncclUint64};
+    std::vector<ncclDataType_t> const dataTypes       = {ncclUint32, ncclUint64, ncclFloat16};
     std::vector<ncclRedOp_t>    const redOps          = {ncclSum};
     std::vector<int>            const roots           = {0};
     std::vector<int>            const numElements     = {125};
