@@ -12,8 +12,8 @@ namespace RcclUnitTesting
     TestBed testBed;
 
     // Configuration
-    std::vector<ncclDataType_t> const& dataTypes       = {ncclInt32/*, ncclFloat16, ncclFloat64*/};
-    std::vector<int>            const  numElements     = {/*1048576, 53327, */1024};
+    std::vector<ncclDataType_t> const& dataTypes       = {ncclInt32, ncclFloat16, ncclFloat64};
+    std::vector<int>            const  numElements     = {1048576, 53327, 1024, 0};
     bool                        const  inPlace         = false;
     bool                        const  useManagedMem   = false;
 
@@ -52,6 +52,15 @@ namespace RcclUnitTesting
                                     sendRank);
           if (recvRank == 0)
           {
+            //set up the collArg slot to make sure AllocateMem is called once and correctly
+            testBed.SetCollectiveArgs(ncclCollSend,
+                                      dataTypes[dataIdx],
+                                      numElements[numIdx],
+                                      numElements[numIdx],
+                                      options,
+                                      0,
+                                      !groupCallId,
+                                      sendRank);
             testBed.AllocateMem(inPlace, useManagedMem, 0, 0, sendRank);
             testBed.PrepareData(0, 0, sendRank);
             testBed.AllocateMem(inPlace, useManagedMem, 1, 0, sendRank);
