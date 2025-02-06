@@ -18,6 +18,7 @@
 #include "register.h"
 #include "graph.h"
 #include "nvmlwrap.h"
+#include "replayer.h"
 
 #if defined(__HIP_PLATFORM_AMD__) || defined(__HIPCC__)
 #define HIPRT_CB

@@ -2197,6 +2197,11 @@ static ncclResult_t ncclCommInitRankDev(ncclComm_t* newcomm, int nranks, ncclUni
   job->commId = commId; // C++ struct assignment
   job->myrank = myrank;
   job->cudaDev = cudaDev;
+
+  // put here in beginning not sure
+  // ncclCommInitRank/All_impl -> ncclCommInitRankDev -> ncclCommInitRankFunc
+  rcclReplayerInit(ncclGetEnv("NCCL_REPLAY_FILE"));
+
   NCCLCHECKGOTO(ncclAsyncLaunch(&job->base, ncclCommInitRankFunc, NULL, free, comm), res, fail);
 
 exit:
@@ -2363,6 +2368,9 @@ static ncclResult_t commDestroySync(struct ncclAsyncJob* job_) {
   if ((ret = ncclProxyStop(comm)) != ncclSuccess) {
     WARN("ncclProxyStop: comm %p (rank = %d) destroys proxy resource error %d", comm, comm->rank, ret);
   }
+
+  // is this end of nccls life cycle? and is symmetic to replayer init?
+  rcclReplayerFinish();
 
   if (savedDevice != commDevice) {
     CUDACHECKGOTO(cudaSetDevice(savedDevice), ret, fail);
