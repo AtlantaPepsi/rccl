@@ -118,8 +118,8 @@ NCCL_API(ncclResult_t, ncclAllReduce, const void* sendbuff, void* recvbuff, size
 ncclResult_t ncclAllReduce_impl(const void* sendbuff, void* recvbuff, size_t count,
     ncclDataType_t datatype, ncclRedOp_t op, ncclComm* comm, cudaStream_t stream) {
 
-  struct CollectiveCall coll = {"AllReduce", comm->opCount, sendbuff, recvbuff, count, datatype, op, 0, comm, comm->nRanks,
-    stream, comm->planner.nTasksP2p + comm->planner.nTasksColl, comm->localRankToRank[comm->localRank]};
+  struct CollectiveCall coll = {-1, -1, -1, ncclFuncAllReduce, comm->opCount, sendbuff, recvbuff, count, datatype, op, 0,
+    comm, comm->nRanks, stream, comm->planner.nTasksP2p + comm->planner.nTasksColl, comm->localRankToRank[comm->localRank]};
 
   rcclReplayerRecord(coll);
 

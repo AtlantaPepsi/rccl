@@ -2353,6 +2353,11 @@ static ncclResult_t commDestroySync(struct ncclAsyncJob* job_) {
     CUDACHECKGOTO(cudaSetDevice(commDevice), ret, fail);
   }
 
+  //is this the right place
+  //NCCLCHECKGOTO(rcclReplayerWrite(comm), ret, fail);
+  ret = rcclReplayerWrite(comm);
+  if (ret != ncclSuccess) printf("errrrr\n");
+
   TRACE(NCCL_INIT, "Destroying comm %p rank %d abortFlag %d asyncResult %d", comm, comm->rank, *comm->abortFlag, comm->asyncResult);
 
   if (comm->initState == ncclSuccess) {
