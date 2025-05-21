@@ -1,5 +1,6 @@
 #pragma once
 #include <map>
+#include <unordered_map>
 #include <chrono>
 #include <cstring>
 
@@ -7,6 +8,9 @@
 #include <hip/hip_bfloat16.h>
 #include "hip/hip_fp16.h"
 #include "rccl_float8.h"
+
+#include "info.h"
+#include "recorder.h"
 
 // NOTE: Parsing is based on this line logging collective information in enqueue.cc
 // INFO(NCCL_COLL,"%s: opCount %lx sendbuff %p recvbuff %p count %zi datatype %d op %d \
@@ -35,77 +39,6 @@
     }                                                           \
   } while(0)
 
-struct LineItem
-{
-  int           pid;
-  int           tid;
-  int           cudaDev;
-  //int         graph;
-  int           groupDepth;
-
-  int           coll;
-  uint64_t      opCount;
-  void*         sendbuff;
-  void*         recvbuff;
-  size_t        count;
-  int           datatype;
-  int           op;
-  int           root;
-  void*         comm;
-  int           nRanks;
-  void*         stream;
-  int           nTasks;
-  int           globalRank;
-};
-
-// Enumeration of all collective functions currently supported
-typedef enum
-{
-  ncclCollBroadcast = 0,
-  ncclCollReduce,
-  ncclCollAllGather,
-  ncclCollReduceScatter,
-  ncclCollAllReduce,
-  ncclCollGather,
-  ncclCollScatter,
-  ncclCollAllToAll,
-  ncclCollAllToAllv,
-  ncclCollSend,
-  ncclCollRecv,
-  ncclNumFuncs,
-  ncclStartGroup = 10;
-  ncclEndGroup = 11;
-} ncclFunc_t;
-
-char const ncclFuncNames[ncclNumFuncs][32] =
-{
-  "Broadcast",
-  "Reduce",
-  "AllGather",
-  "ReduceScatter",
-  "AllReduce",
-  "Gather",
-  "Scatter",
-  "AllToAll",
-  "AllToAllv",
-  "Send",
-  "Recv"
-};
-
-char const mscclFuncNames[ncclNumFuncs][32] =
-{
-  "mscclFuncBroadcast",
-  "mscclFuncReduce",
-  "mscclFuncAllGather",
-  "mscclFuncReduceScatter",
-  "mscclFuncAllReduce",
-  "mscclFuncGather",
-  "mscclFuncScatter",
-  "mscclFuncAllToAll",
-  "mscclFuncAllToAllv",
-  "mscclFuncSend",
-  "mscclFuncRecv"
-};
 
 union PtrUnion
 {
@@ -140,9 +73,68 @@ struct TaskInfo
   PtrUnion       expected;
 };
 
+struct DeviceMemAllocation
+{
+  void*                 base = NULL;
+  size_t                size = 0;
+  int                   lastLineUsed = -1;
+};
+
+struct DeviceGraphInfo
+{
+  int                   depth = 0;
+  std::vector<int>      starts;
+  std::pair<int, int>   ends;
+  hipStream_t           stream = NULL;
+  hipGraph_t            graph = NULL;
+  hipGraphExec_t        graphExec = NULL;
+
+  int                   counter = 0;
+};
+
+class Replayer
+{
+ private:
+  // rank specific info
+  int                   myRank;
+  int                   numGlobalRanks;
+  /// int numGpusPerMpiRank;
+  /// int localGpuOffset;                                     // First local GPU device idx for this MPI process
+  /// int firstGlobalRank;                                    // First global rank for this MPI process
+  std::ifstream         log;
+
+  // Contextual info parsed from first pass, to assist replay later
+  //  Communicator
+  std::vector<uint64_t>                                 Ids; // all communicators (uniqueIDs) created from commInit, assuming called once only
+  std::unordered_map<uint64_t, std::vector<int>>        idRankMap; // all ranks in the communicator created by an ID on this rank
+  std::unordered_map<unsigned long long, DeviceGraphInfo> 
+	                                                graphLife; // when does a graph (graphID) end and how many node it contains
+
+
+  //  Memory allocation and lifespan
+  std::unordered_map<void*, DeviceMemAllocation>        dMemMap;
+
+  // Resources for replayer, mostly maps from pointer in log to resources in replay time
+  std::unordered_map<uint64_t, ncclUniqueId>            idMap; // replayer uniqueID mapped to logged ones, for ID creator rank only
+  std::unordered_map<ncclComm_t, ncclComm_t>            commMap; // replayer communicator mapped to the logged ones
+
+  std::unordered_map<hipStream_t, std::pair<hipStream_t,int>> 
+                                                        streams; // replayer streams mapped to the logged ones // use using later?
+  std::unordered_map<void*, void*>                      handleMap; // UBR handle
+
+  // State variables for replayer
+  ncclUniqueId uniqueID;
+  rccl::rcclCall_t lastCall;
+
+ public:
+  Replayer(const std::string& logname, int json_format, int rank, int size);
+  void parse();
+  void replay();
+};
+
 struct RankData
 {
-  int                   lineNum;
+  int                   lineNum; // don need;
   int                   commIdx;
   std::vector<TaskInfo> tasks;
 };
@@ -154,20 +146,8 @@ struct GroupCall
   std::map<int, RankData> rankData;
 };
 
-struct CollectiveCalls
-{
-  int numGlobalRanks;
-  int numGpusPerMpiRank;
-  std::vector<std::vector<void*>> globalRankComms;  // Set of comms used by each global rank
-  std::vector<GroupCall>                groupCalls;       // List of group calls for each global rank
-
-  int localGpuOffset;                                     // First local GPU device idx for this MPI process
-  int firstGlobalRank;                                    // First global rank for this MPI process
-  int numCommsPerRank;                                    // Number of communicators per rank
-  std::vector<std::vector<ncclComm_t>>  localRankComms;   // comms per local rank
-  std::vector<std::vector<hipStream_t>> localRankStreams; // streams per local rank
-};
-
+/*
+//csv
 std::string DataTypeToName(ncclDataType_t const dataType)
 {
   switch (dataType) {
@@ -189,6 +169,7 @@ std::string DataTypeToName(ncclDataType_t const dataType)
   }
 }
 
+//csv, fill data
 size_t DataTypeToBytes(ncclDataType_t const dataType)
 {
   switch (dataType) {
@@ -210,6 +191,7 @@ size_t DataTypeToBytes(ncclDataType_t const dataType)
   }
 }
 
+//csv
 std::string RedOpToName(ncclRedOp_t const op)
 {
   switch (op) {
@@ -224,14 +206,6 @@ std::string RedOpToName(ncclRedOp_t const op)
     printf("Unsupported redOp (%d)\n", op);
     exit(0);
   }
-}
-
-ncclFunc_t GetFuncType(char* func)
-{
-  for (int i = 0; i < ncclNumFuncs; i++)
-    if (!strcmp(func, ncclFuncNames[i]) || !strcmp(func, mscclFuncNames[i])) return (ncclFunc_t)i;
-  printf("[ERROR] Unrecognized func %s\n", func);
-  exit(1);
 }
 
 // Set data for ptrUnion (Used during fillPattern)
@@ -428,4 +402,4 @@ void PrepData_Gather(TaskInfo& taskInfo, int globalRank, int totalRanks, bool is
 void PrepData_Scatter(TaskInfo& taskInfo, int globalRank, int totalRanks);
 void PrepData_AlltoAll(TaskInfo& taskInfo, int globalRank, int totalRanks);
 void PrepData_Send(TaskInfo& taskInfo, int globalRank);
-void PrepData_Recv(TaskInfo& taskInfo, int globalRank);
+void PrepData_Recv(TaskInfo& taskInfo, int globalRank);*/

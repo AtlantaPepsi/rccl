@@ -86,6 +86,10 @@ struct rcclApiCall {
   double                timestamp = -1;
   unsigned long long    graphID = 0;
   int                   graphCaptured = -1;
+  void*                 spbase = NULL;
+  void*                 rpbase = NULL;
+  size_t                spsize = 0;
+  size_t                rpsize = 0;
 
 // explicit data from header
   rcclCall_t            type; // in adjacent to op Name ^
