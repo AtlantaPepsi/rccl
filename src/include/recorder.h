@@ -106,6 +106,7 @@ struct rcclApiCall {
   int                   nTasks = -1;
   int                   globalRank = -1;
   uint64_t              commId = 0;
+  mutable double        val = 0.0; // for validation only
 
   rcclApiCall(){}
   rcclApiCall(rcclCall_t type, const ncclInfo& info);

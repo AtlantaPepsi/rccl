@@ -254,7 +254,6 @@ void Recorder::write(const rcclApiCall &call)
     outputFile.write(buffer, len);
   } else {
     outputFile.write((char*)&call, sizeof(rcclApiCall));
-    outputFile << std::endl;
   }
   outputFile.flush();
   return ;
@@ -372,9 +371,9 @@ ncclResult_t Recorder::record(rcclCall_t type, const void* sendbuff, void* recvb
   ncclResult_t ret = record(call);
   if (type == rrAllToAllv)
   {
+    int size = call.nRanks - 1;
     if (output_json)
     {
-      int size = call.nRanks - 1;
       outputFile << ", sendcounts : [";
       for (int i = 0; i < size; i++) outputFile << sendcounts[i] << ", ";
       outputFile << sendcounts[size] << "], sdispls : [";
@@ -384,9 +383,13 @@ ncclResult_t Recorder::record(rcclCall_t type, const void* sendbuff, void* recvb
       outputFile << recvcounts[size] << "], rdispls : [";
       for (int i = 0; i < size; i++) outputFile << rdispls[i] << ", ";
       outputFile << rdispls[size] << "]";
-      outputFile.flush();
+    } else {
+      outputFile.write((char*)sendcounts, sizeof(size_t) * size);
+      outputFile.write((char*)sdispls, sizeof(size_t) * size);
+      outputFile.write((char*)recvcounts, sizeof(size_t) * size);
+      outputFile.write((char*)rdispls, sizeof(size_t) * size);
     }
-    // else export to binary
+    outputFile.flush();
   }
   return ret;
 }
@@ -549,18 +552,23 @@ void Recorder::record(ncclComm_t* comms, int ndev, const int* devlist)
 
   rcclApiCall call(rrCommInitAll);
   call.root = ndev;
-  // call.sendbuff = comms; TODO: might log this too
+  call.sendbuff = devlist;
   record(call);
 
-  if (output_json && devlist)
+  if (devlist)
   {
-    outputFile << ", devlist : [";
-    for (int i = 0; i < call.root - 1; i++)
-      outputFile << devlist[i] << ", ";
-    outputFile << devlist[call.root - 1] << "]";
-    outputFile.flush();
+    if (output_json)
+    {
+      outputFile << ", devlist : [";
+      for (int i = 0; i < call.root - 1; i++)
+        outputFile << devlist[i] << ", ";
+      outputFile << devlist[call.root - 1] << "]";
+      outputFile.flush();
+    } else {
+      outputFile.write((char*)devlist, sizeof(int) * ndev);
+      outputFile.flush();
+    }
   }
-  // else flush
 }
 
 Recorder::~Recorder()
