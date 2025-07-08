@@ -105,10 +105,10 @@ class Replayer
   void reset();
   void start();
   void pause();
-  double elapsed() const;
 
  public:
   Replayer(const std::string& logname, int json_format, int rank, int size);
   void parse();
   void replay();
+  double elapsed() const;
 };

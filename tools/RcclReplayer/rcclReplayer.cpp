@@ -38,7 +38,7 @@ void Replayer::pause()
   total += (t1 - t0);
 }
 
-double Replayer::elapsed()
+double Replayer::elapsed() const
 {
   return 1.e-9 * total;
 }
@@ -310,18 +310,20 @@ void Replayer::replay()
         if (graphLife[call.graphID].starts.contains(lineNum))
         {
           printf("[INFO    ] Rank %d - Line %d : launching graph %llu\n", myRank, lineNum, call.graphID);
+          start();
           HIP_CALL(hipGraphLaunch(graphLife[call.graphID].graphExec, streams[call.stream].first));
+          HIP_CALL(hipStreamSynchronize(streams[call.stream].first));
+          pause();
         }
         printf("[INFO    ] Rank %d - Line %d : being played by previous graph %llu\n", myRank, lineNum, call.graphID);
         goto cleanup;
       }
     }
 
+    start();
     switch (call.type) {
     case rrGroupSimulatedEnd: // TODO: cannot test atm
     /// case rrCommInitRankConfig:   <-- these all should depend on CommInitDev
-    case rrRedOpCreatePreMulSum:
-    case rrRedOpDestroy:
     case rrOtherCall:
     {
       printf("[ERROR   ] Rank %d - Line %d : Unexpected call: %s\n", myRank, lineNum, rcclCallStr[call.type]);
@@ -456,12 +458,12 @@ void Replayer::replay()
       void *scalar;
       if (call.root)
       {
-        malloc(&scalar, ncclTypeSize(call.datatype));
+        scalar = malloc(ncclTypeSize(call.datatype));
       } else {
         hipMalloc(&scalar, ncclTypeSize(call.datatype));
       }
       ncclRedOp_t op;
-      NCCL_CALL(ncclRedOpCreatePreMulSum(&op, scalar, call.datatype, call.root, commMap[call.comm]));
+      NCCL_CALL(ncclRedOpCreatePreMulSum(&op, scalar, call.datatype, (ncclScalarResidence_t) call.root, commMap[call.comm]));
       assert(op > ncclNumOps);
       redopMap[op] = op;
       if (call.root)
@@ -474,7 +476,7 @@ void Replayer::replay()
     }
     case rrRedOpDestroy:
     {
-      NCCL_CALL(ncclRedOpDestroy(redopMap[call.op], commMap[call.comm]); // TODO: confirm if op overlaps across comms
+      NCCL_CALL(ncclRedOpDestroy((ncclRedOp_t) redopMap[call.op], commMap[call.comm])); // TODO: confirm if op overlaps across comms
       break;
     }
 
@@ -557,6 +559,12 @@ void Replayer::replay()
       break;
     }
     } //switch
+    if (call.type < rrGroupStart)
+    {
+      HIP_CALL(hipStreamSynchronize(streams[call.stream].first));
+    }
+    pause();
+
     printf("[INFO    ] Rank %d - Line %d : %s called\n", myRank, lineNum, rcclCallStr[call.type]);
     lastCall = call.type;
 
@@ -720,6 +728,7 @@ int main(int argc, char **argv)
   replayer.parse();
   printf("Rank %d parsing completed, starting replay\n", mpiRank);
   replayer.replay();
+  printf("Rank %d replaying completed, total time spent: %f\n", mpiRank, replayer.elapsed());
   MPI_Finalize();
   return 0;
 }
