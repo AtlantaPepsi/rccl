@@ -92,10 +92,20 @@ class Replayer
   std::unordered_map<void*, void*>                      handleMap; // UBR handle
   std::unordered_map<unsigned long long, DeviceGraphInfo>
                                                         graphLife; // when does a graph (graphID) end and how many node it contains
+  std::unordered_map<int, int>                          redopMap;
 
   // auxiliary variables for replayer
   ncclUniqueId uniqueID;
   rccl::rcclCall_t lastCall;
+
+  // timer
+  uint64_t              t0 = 0;
+  uint64_t              total = 0;
+
+  void reset();
+  void start();
+  void pause();
+  double elapsed() const;
 
  public:
   Replayer(const std::string& logname, int json_format, int rank, int size);

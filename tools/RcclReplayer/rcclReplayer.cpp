@@ -5,7 +5,6 @@
 #include <vector>
 #include <algorithm>
 #include <numeric>
-#include <chrono>
 #include <mpi.h>
 #include <fstream>
 #include <unordered_set>
@@ -16,6 +15,33 @@
 #include <stdio.h>
 
 using namespace rccl;
+using namespace std::chrono;
+
+static uint64_t now()
+{
+  return duration_cast<nanoseconds>(steady_clock::now().time_since_epoch()).count();
+}
+
+void Replayer::reset()
+{
+  total = 0;
+}
+
+void Replayer::start()
+{
+  t0 = now();
+}
+
+void Replayer::pause()
+{
+  uint64_t t1 = now();
+  total += (t1 - t0);
+}
+
+double Replayer::elapsed()
+{
+  return 1.e-9 * total;
+}
 
 static int json_format = 0; // binary by default
 
@@ -423,6 +449,32 @@ void Replayer::replay()
     case rrMemFree:
     {
       NCCL_CALL(ncclMemFree(dMemMap[call.recvbuff].base));
+      break;
+    }
+    case rrRedOpCreatePreMulSum:
+    {
+      void *scalar;
+      if (call.root)
+      {
+        malloc(&scalar, ncclTypeSize(call.datatype));
+      } else {
+        hipMalloc(&scalar, ncclTypeSize(call.datatype));
+      }
+      ncclRedOp_t op;
+      NCCL_CALL(ncclRedOpCreatePreMulSum(&op, scalar, call.datatype, call.root, commMap[call.comm]));
+      assert(op > ncclNumOps);
+      redopMap[op] = op;
+      if (call.root)
+      {
+        free(scalar);
+      } else {
+        hipFree(scalar);
+      }
+      break;
+    }
+    case rrRedOpDestroy:
+    {
+      NCCL_CALL(ncclRedOpDestroy(redopMap[call.op], commMap[call.comm]); // TODO: confirm if op overlaps across comms
       break;
     }
 
