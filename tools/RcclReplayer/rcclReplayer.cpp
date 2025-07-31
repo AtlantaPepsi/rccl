@@ -35,12 +35,18 @@ void Replayer::start()
 void Replayer::pause()
 {
   uint64_t t1 = now();
-  total += (t1 - t0);
+  last_epoch = t1 - t0;
+  total += last_epoch;
 }
 
-double Replayer::elapsed() const
+uint64_t Replayer::epoch() const
 {
-  return 1.e-9 * total;
+  return last_epoch;
+}
+
+uint64_t Replayer::elapsed() const
+{
+  return total;
 }
 
 static int json_format = 0; // binary by default
@@ -240,6 +246,10 @@ void Replayer::parse()
 
 void Replayer::replay()
 {
+  for (int i = 0; i < int(ncclNumOps); i++)
+  {
+    redopMap[(ncclRedOp_t)i] = (ncclRedOp_t)i;
+  }
   while (log.read(line, rcclCallSize))
   {
     rcclApiCall call = *((rcclApiCall*) line);
@@ -465,7 +475,7 @@ void Replayer::replay()
       ncclRedOp_t op;
       NCCL_CALL(ncclRedOpCreatePreMulSum(&op, scalar, call.datatype, (ncclScalarResidence_t) call.root, commMap[call.comm]));
       assert(op > ncclNumOps);
-      redopMap[op] = op;
+      redopMap[call.op] = op;
       if (call.root)
       {
         free(scalar);
@@ -476,7 +486,7 @@ void Replayer::replay()
     }
     case rrRedOpDestroy:
     {
-      NCCL_CALL(ncclRedOpDestroy((ncclRedOp_t) redopMap[call.op], commMap[call.comm])); // TODO: confirm if op overlaps across comms
+      NCCL_CALL(ncclRedOpDestroy(redopMap[call.op], commMap[call.comm])); // TODO: confirm if op overlaps across comms
       break;
     }
 
@@ -495,7 +505,7 @@ void Replayer::replay()
     // op root
     case rrReduce:
     {
-      NCCL_CALL(ncclReduce(sbuffer, rbuffer, call.count, call.datatype, call.op, call.root, commMap[call.comm], streams[call.stream].first));
+      NCCL_CALL(ncclReduce(sbuffer, rbuffer, call.count, call.datatype, redopMap[call.op], call.root, commMap[call.comm], streams[call.stream].first));
       break;
     }
     // root
@@ -533,18 +543,18 @@ void Replayer::replay()
     // op
     case rrReduceScatter:
     {
-      NCCL_CALL(ncclReduceScatter(sbuffer, rbuffer, call.count, call.datatype, call.op, commMap[call.comm], streams[call.stream].first));
+      NCCL_CALL(ncclReduceScatter(sbuffer, rbuffer, call.count, call.datatype, redopMap[call.op], commMap[call.comm], streams[call.stream].first));
       break;
     }
     case rrAllReduce:
     {
-      NCCL_CALL(ncclAllReduce(sbuffer, rbuffer, call.count, call.datatype, call.op, commMap[call.comm], streams[call.stream].first));
+      NCCL_CALL(ncclAllReduce(sbuffer, rbuffer, call.count, call.datatype, redopMap[call.op], commMap[call.comm], streams[call.stream].first));
       break;
     }
     // a2av
     case rrAllToAllv:
     {
-      // timer pause here
+      // TODO: timer pause here
       // assuming blocking for now
       int size = call.nRanks;
       std::vector<size_t> sendcounts(size), sdispls(size), recvcounts(size), rdispls(size);
@@ -565,7 +575,7 @@ void Replayer::replay()
     }
     pause();
 
-    printf("[INFO    ] Rank %d - Line %d : %s called\n", myRank, lineNum, rcclCallStr[call.type]);
+    printf("[INFO    ] Rank %d - Line %d : %s finished. latency: %ds, bw: %dGB/s \n", myRank, lineNum, rcclCallStr[call.type]);
     lastCall = call.type;
 
     if (call.graphCaptured == 1)
@@ -728,7 +738,7 @@ int main(int argc, char **argv)
   replayer.parse();
   printf("Rank %d parsing completed, starting replay\n", mpiRank);
   replayer.replay();
-  printf("Rank %d replaying completed, total time spent: %f\n", mpiRank, replayer.elapsed());
+  printf("Rank %d replaying completed, total time spent: %f\n", mpiRank, 1.e-9 * replayer.elapsed());
   MPI_Finalize();
   return 0;
 }
