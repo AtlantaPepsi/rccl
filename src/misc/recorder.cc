@@ -80,6 +80,8 @@ Recorder::Recorder()
   if (!filename.size())
   {
     return;
+  } else {
+    printf("filename : %s\n", filename.c_str());
   }
 
   logLevel = getenv("RCCL_LOG_LEVEL") ? std::stoi(getenv("RCCL_LOG_LEVEL")) : 1;
@@ -102,6 +104,8 @@ Recorder::Recorder()
   } else {
     output_name = std::string(filename);
   }
+
+  printf("output to : %s.*%s\n", output_name.c_str(), output_extension.c_str());
 
   outputFile.open(output_name + "." + std::to_string(pid) + "." + std::string(hostname) + output_extension,
                   output_json ? std::ofstream::out : std::ofstream::binary);
